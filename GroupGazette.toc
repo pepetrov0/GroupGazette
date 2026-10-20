@@ -7,7 +7,6 @@
 ## OptionalDeps: ElvUI
 ## X-Category: Group
 
-Data.lua
 Core.lua
 UI.lua
 Skin_ElvUI.lua

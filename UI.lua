@@ -3,26 +3,9 @@ local addonName, GG = ...
 local lower, find, format = string.lower, string.find, string.format
 
 local ROW_H, NUM_ROWS = 20, 15
-local FRAME_W, FRAME_H = 640, 440
+local FRAME_W, FRAME_H = 680, 416
 local LIST_W = FRAME_W - 32
 local ROW_W = LIST_W - 32
-
-local CATEGORIES = {
-    { "all", "All" }, { "dungeon", "Dungeons" }, { "raid", "Raids" }, { "other", "Other" },
-}
-local ROLES = {
-    { "tank", "T", "Tank" },
-    { "heal", "H", "Healer" },
-    { "dps",  "D", "DPS" },
-}
-local ROLE_HEX = { tank = "|cff4099ff", heal = "|cff4dff4d", dps = "|cffff4d4d" }
-local CAT_COLOR = {
-    raid    = { 1.0, 0.55, 0.25 },
-    dungeon = { 0.45, 0.8, 1.0 },
-    other   = { 0.65, 0.65, 0.65 },
-}
-
-GG.fontStrings = {}
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -31,40 +14,6 @@ local function FormatAge(s)
     s = math.floor(s)
     if s < 60 then return s .. "s" end
     return math.floor(s / 60) .. "m"
-end
-
-local function TagText(e)
-    local t = e.label or "-"
-    if e.size then t = t .. " " .. e.size end
-    if e.heroic then t = t .. " HC" end
-    return t
-end
-
-local function RolesText(e)
-    local parts = {}
-    for _, r in ipairs(ROLES) do
-        if e.roles and e.roles[r[1]] then
-            parts[#parts + 1] = ROLE_HEX[r[1]] .. r[2] .. "|r"
-        end
-    end
-    if #parts == 0 then return "|cff777777-|r" end
-    return table.concat(parts, " ")
-end
-
-local function SetToggle(btn, on)
-    local fs = btn:GetFontString()
-    if not fs then return end
-    if on then
-        if GG.accent then
-            fs:SetTextColor(GG.accent[1], GG.accent[2], GG.accent[3])
-        else
-            fs:SetTextColor(0.3, 1, 0.3)
-        end
-    elseif GG.skinned then
-        fs:SetTextColor(1, 1, 1)
-    else
-        fs:SetTextColor(1, 0.82, 0)
-    end
 end
 
 local function NewButton(parent, text, w, h)
@@ -76,13 +25,12 @@ local function NewButton(parent, text, w, h)
 end
 
 local function NewRowFS(parent, w, template)
-    local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontHighlightSmall")
+    local fs = parent:CreateFontString(nil, "OVERLAY", template or "GameFontHighlight")
     fs:SetJustifyH("LEFT")
     fs:SetJustifyV("MIDDLE")
     fs:SetHeight(ROW_H)
     fs:SetWidth(w)
     if fs.SetWordWrap then fs:SetWordWrap(false) end
-    GG.fontStrings[#GG.fontStrings + 1] = fs
     return fs
 end
 
@@ -114,44 +62,30 @@ end
 ---------------------------------------------------------------------------
 -- View building / row updating
 ---------------------------------------------------------------------------
+local function SortByMessage(a, b)
+    if a.sortKey ~= b.sortKey then return a.sortKey < b.sortKey end
+    return a.key < b.key
+end
+
 function GG:BuildView()
-    local st = self.state
+    local search = self.state.search
     local view, total = {}, 0
-    local anyRole = next(st.roles) ~= nil
-    local search = st.search
 
     for _, e in pairs(self.entries) do
         total = total + 1
-        local ok = true
-
-        if st.cat ~= "all" and e.cat ~= st.cat then ok = false end
-
-        if ok and anyRole then
-            local hasInfo = e.roles and (e.roles.tank or e.roles.heal or e.roles.dps)
-            if hasInfo then
-                local match = false
-                for role in pairs(st.roles) do
-                    if e.roles[role] then match = true break end
-                end
-                ok = match
-            end
+        if search == "" or find(e.sortKey .. " " .. lower(e.name), search, 1, true) then
+            view[#view + 1] = e
         end
-
-        if ok and search ~= "" then
-            local hay = lower(e.name) .. " " .. (e.l or "") .. " " .. lower(e.label or "")
-            if not find(hay, search, 1, true) then ok = false end
-        end
-
-        if ok then view[#view + 1] = e end
     end
 
-    table.sort(view, function(a, b) return a.time > b.time end)
+    -- Alphabetical by message text (ties broken by name) so rows keep
+    -- their place instead of reshuffling every time someone reposts.
+    table.sort(view, SortByMessage)
     self.view = view
     self.total = total
 end
 
 function GG:UpdateRows()
-    local f = self.frame
     local view = self.view or {}
     FauxScrollFrame_Update(self.scroll, #view, NUM_ROWS, ROW_H)
     local offset = FauxScrollFrame_GetOffset(self.scroll)
@@ -168,11 +102,6 @@ function GG:UpdateRows()
             if c then row.name:SetTextColor(c.r, c.g, c.b) else row.name:SetTextColor(1, 0.82, 0) end
             row.name:SetText(e.name)
 
-            local cc = CAT_COLOR[e.cat] or CAT_COLOR.other
-            row.tag:SetTextColor(cc[1], cc[2], cc[3])
-            row.tag:SetText(TagText(e))
-
-            row.roles:SetText(RolesText(e))
             row.msg:SetText(e.clean)
 
             row.bg:SetVertexColor(1, 1, 1, ((i + offset) % 2 == 0) and 0.06 or 0)
@@ -191,14 +120,7 @@ function GG:Refresh()
     self:BuildView()
     self:UpdateRows()
     f.count:SetText(format("%d / %d groups", #self.view, self.total))
-    f.footer:SetText(format("Entries expire after %ds. Use /gazette for options.", self.db and self.db.expire or 180))
-end
-
-function GG:UpdateToggles()
-    local f = self.frame
-    if not f then return end
-    for key, btn in pairs(f.catButtons) do SetToggle(btn, self.state.cat == key) end
-    for key, btn in pairs(f.roleButtons) do SetToggle(btn, self.state.roles[key]) end
+    f.footer:SetText(format("Listings expire after %ds", self.db and self.db.expire or 180))
 end
 
 ---------------------------------------------------------------------------
@@ -233,7 +155,7 @@ function GG:CreateUI()
         local p, _, rp, x, y = self:GetPoint()
         if GG.db then GG.db.pos = { p, rp, x, y } end
     end)
-    f:SetScript("OnShow", function() GG:UpdateToggles() GG:Refresh() end)
+    f:SetScript("OnShow", function() GG:Refresh() end)
     table.insert(UISpecialFrames, "GroupGazetteFrame")
 
     -- Default (non-ElvUI) look
@@ -253,60 +175,17 @@ function GG:CreateUI()
     f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     f.title:SetPoint("TOP", f.header, "TOP", 0, -14)
     f.title:SetText("Group Gazette")
-    GG.fontStrings[#GG.fontStrings + 1] = f.title
 
     f.close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     f.close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -6, -6)
 
-    ---------------------------------------------------------------- filters
-    f.catButtons, f.roleButtons = {}, {}
-    local x = 18
-    for _, c in ipairs(CATEGORIES) do
-        local key, label = c[1], c[2]
-        local b = NewButton(f, label, 74, 22)
-        b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -40)
-        b:SetScript("OnClick", function()
-            GG.state.cat = key
-            GG:UpdateToggles()
-            GG:Refresh()
-        end)
-        f.catButtons[key] = b
-        x = x + 78
-    end
-
-    local rx = -18
-    for i = #ROLES, 1, -1 do
-        local key, letter, name = ROLES[i][1], ROLES[i][2], ROLES[i][3]
-        local b = NewButton(f, letter, 28, 22)
-        b:SetPoint("TOPRIGHT", f, "TOPRIGHT", rx, -40)
-        b:SetScript("OnClick", function()
-            GG.state.roles[key] = (not GG.state.roles[key]) or nil
-            GG:UpdateToggles()
-            GG:Refresh()
-        end)
-        b:SetScript("OnEnter", function(self)
-            GameTooltip:SetOwner(self, "ANCHOR_TOP")
-            GameTooltip:SetText("Only show groups that need a " .. name)
-            GameTooltip:AddLine("(groups that don't list roles are always shown)", 0.7, 0.7, 0.7)
-            GameTooltip:Show()
-        end)
-        b:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        f.roleButtons[key] = b
-        rx = rx - 32
-    end
-    f.roleLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.roleLabel:SetPoint("RIGHT", f.roleButtons.tank, "LEFT", -6, 0)
-    f.roleLabel:SetText("Needs:")
-    GG.fontStrings[#GG.fontStrings + 1] = f.roleLabel
-
     ---------------------------------------------------------------- search row
-    f.searchLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    f.searchLabel:SetPoint("TOPLEFT", f, "TOPLEFT", 20, -72)
+    f.searchLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    f.searchLabel:SetPoint("TOPLEFT", f, "TOPLEFT", 20, -44)
     f.searchLabel:SetText("Search:")
-    GG.fontStrings[#GG.fontStrings + 1] = f.searchLabel
 
     local sb = CreateFrame("EditBox", "GroupGazetteSearch", f, "InputBoxTemplate")
-    sb:SetWidth(200)
+    sb:SetWidth(220)
     sb:SetHeight(20)
     sb:SetPoint("LEFT", f.searchLabel, "RIGHT", 10, 0)
     sb:SetAutoFocus(false)
@@ -319,17 +198,16 @@ function GG:CreateUI()
     end)
     f.search = sb
 
-    f.clear = NewButton(f, "Clear board", 90, 22)
-    f.clear:SetPoint("TOPRIGHT", f, "TOPRIGHT", -18, -68)
+    f.clear = NewButton(f, "Clear board", 100, 22)
+    f.clear:SetPoint("TOPRIGHT", f, "TOPRIGHT", -18, -40)
     f.clear:SetScript("OnClick", function() GG:Clear() end)
 
-    f.count = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    f.count = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     f.count:SetPoint("RIGHT", f.clear, "LEFT", -12, 0)
-    GG.fontStrings[#GG.fontStrings + 1] = f.count
 
     ---------------------------------------------------------------- list
     local list = CreateFrame("Frame", nil, f)
-    list:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -96)
+    list:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -72)
     list:SetWidth(LIST_W)
     list:SetHeight(NUM_ROWS * ROW_H + 8)
     list:SetBackdrop({
@@ -357,8 +235,13 @@ function GG:CreateUI()
     end
     list:SetScript("OnMouseWheel", OnWheel)
 
+    -- Columns: time since posted | poster | message
+    local AGE_X, AGE_W   = 4, 40
+    local NAME_X, NAME_W = 48, 112
+    local MSG_X          = 164
+    local MSG_W          = ROW_W - MSG_X - 4
+
     self.rows = {}
-    local msgW = ROW_W - 284
     for i = 1, NUM_ROWS do
         local row = CreateFrame("Button", nil, list)
         row:SetWidth(ROW_W)
@@ -377,21 +260,15 @@ function GG:CreateUI()
         row.hl = row:GetHighlightTexture()
         row.hl:SetVertexColor(1, 0.82, 0, 0.18)
 
-        row.age = NewRowFS(row, 32)
-        row.age:SetPoint("LEFT", row, "LEFT", 4, 0)
+        row.age = NewRowFS(row, AGE_W)
+        row.age:SetPoint("LEFT", row, "LEFT", AGE_X, 0)
         row.age:SetTextColor(0.6, 0.6, 0.6)
 
-        row.name = NewRowFS(row, 96, "GameFontNormalSmall")
-        row.name:SetPoint("LEFT", row, "LEFT", 40, 0)
+        row.name = NewRowFS(row, NAME_W, "GameFontNormal")
+        row.name:SetPoint("LEFT", row, "LEFT", NAME_X, 0)
 
-        row.tag = NewRowFS(row, 92)
-        row.tag:SetPoint("LEFT", row, "LEFT", 140, 0)
-
-        row.roles = NewRowFS(row, 40)
-        row.roles:SetPoint("LEFT", row, "LEFT", 236, 0)
-
-        row.msg = NewRowFS(row, msgW)
-        row.msg:SetPoint("LEFT", row, "LEFT", 280, 0)
+        row.msg = NewRowFS(row, MSG_W)
+        row.msg:SetPoint("LEFT", row, "LEFT", MSG_X, 0)
 
         row:SetScript("OnClick", function(self, button)
             local e = self.entry
@@ -413,15 +290,12 @@ function GG:CreateUI()
     end
 
     ---------------------------------------------------------------- footer
-    f.footer = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    f.footer = f:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     f.footer:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 22, 18)
-    GG.fontStrings[#GG.fontStrings + 1] = f.footer
 
-    f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     f.hint:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -22, 18)
     f.hint:SetText("Click: whisper  |  Shift: /who  |  Right-click: dismiss")
-    GG.fontStrings[#GG.fontStrings + 1] = f.hint
 
     if self.ApplyElvUISkin then self:ApplyElvUISkin() end
-    self:UpdateToggles()
 end

@@ -2,7 +2,7 @@ local addonName, GG = ...
 _G.GroupGazette = GG
 
 GG.entries = {}
-GG.state = { cat = "all", roles = {}, search = "" }
+GG.state = { search = "" }
 
 local lower, find, match, gsub, format = string.lower, string.find, string.match, string.gsub, string.format
 local GetTime = GetTime
@@ -36,29 +36,8 @@ local function CopyDefaults(src, dst)
 end
 
 ---------------------------------------------------------------------------
--- Compile the instance dictionary into Lua patterns
----------------------------------------------------------------------------
-local function Escape(s)
-    return (gsub(s, "[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%0"))
-end
-
-GG.Compiled = {}
-for _, inst in ipairs(GG.Instances) do
-    local pats = {}
-    for i = 3, #inst do
-        pats[#pats + 1] = "%f[%w]" .. Escape(GG.Normalize(inst[i])) .. "%f[%W]"
-    end
-    GG.Compiled[#GG.Compiled + 1] = { label = inst[1], cat = inst[2], pats = pats }
-end
-
----------------------------------------------------------------------------
 -- Message parsing
 ---------------------------------------------------------------------------
-local ROLEWORD = {
-    tank = true, tanks = true,
-    heal = true, heals = true, healer = true, healers = true,
-    dps = true, rdps = true, mdps = true, dd = true, dds = true,
-}
 
 -- Strip colour codes, hyperlinks (keeping "[Name]") and raid-target tags.
 local function Clean(msg)
@@ -69,63 +48,21 @@ local function Clean(msg)
     return msg
 end
 
+-- Only genuine LFM messages: "LFM ...", or the LF1M / LF2M / LF3M variants.
 local function IsLFM(l)
     if find(l, "%f[%w]lfm%f[%W]") then return true end
-    if find(l, "%f[%w]lf%s*%d+%s*m%f[%W]") then return true end          -- lf1m, lf 2m
-    for w in string.gmatch(l, "%f[%w]lf%s*%d*%s*(%a+)") do               -- "lf tank", "lf 2 dps"
-        if ROLEWORD[w] then return true end
-    end
+    if find(l, "%f[%w]lf%s*%d+%s*m%f[%W]") then return true end
     return false
 end
 
--- Returns a table describing the message, or nil if it is not an LFM.
+-- Returns { clean, l } for an LFM message, or nil if it is not one.
 function GG:Parse(msg)
     if type(msg) ~= "string" or msg == "" then return end
     local clean = Clean(msg)
     local l = lower(clean)
     if not find(l, "lf", 1, true) then return end      -- cheap early-out
     if not IsLFM(l) then return end
-
-    local n = GG.Normalize(l)
-    local info = { clean = clean, l = n, roles = {} }
-
-    -- Which instance is mentioned first?
-    local bestPos, best
-    for _, inst in ipairs(GG.Compiled) do
-        for _, pat in ipairs(inst.pats) do
-            local s = find(n, pat)
-            if s and (not bestPos or s < bestPos) then
-                bestPos, best = s, inst
-            end
-        end
-    end
-    if best then
-        info.label, info.cat = best.label, best.cat
-    else
-        info.cat = "other"
-    end
-
-    -- Raid size
-    if info.cat == "raid" then
-        for num in string.gmatch(n, "%d+") do
-            if num == "10" or num == "25" then info.size = num break end
-        end
-    end
-
-    -- Heroic?
-    if find(n, "%f[%w]hc%f[%W]") or find(n, "%f[%w]heroic%f[%W]") or find(n, "%f[%w]hm%f[%W]")
-        or find(n, "%f[%w]%d+ h%f[%W]") or find(n, "%f[%w]h %d+") then
-        info.heroic = true
-    end
-
-    -- Roles wanted
-    if find(n, "%f[%w]tanks?%f[%W]") then info.roles.tank = true end
-    if find(n, "%f[%w]heal%a*%f[%W]") or find(n, "%f[%w]hps%f[%W]") or find(n, "%f[%w]resto%f[%W]") then
-        info.roles.heal = true
-    end
-    if find(n, "%f[%w]r?m?dps%f[%W]") or find(n, "%f[%w]dds?%f[%W]") then info.roles.dps = true end
-
-    return info
+    return { clean = clean, l = l }
 end
 
 ---------------------------------------------------------------------------
@@ -134,9 +71,8 @@ end
 local function WatchMatch(e)
     local watch = GG.db and GG.db.watch
     if not watch then return end
-    local label = lower(e.label or "")
     for _, kw in ipairs(watch) do
-        if label == kw or find(e.l, kw, 1, true) then return kw end
+        if find(e.l, kw, 1, true) then return kw end
     end
 end
 
@@ -167,25 +103,21 @@ function GG:OnChat(event, msg, author, channelString, guid)
         channel = gsub(channelString or "", "^%d+%.%s*", "")
     end
 
-    local isNew = (not old) or (old.label ~= info.label)
+    local isNew = (not old) or (old.clean ~= info.clean)
 
     e.class   = class
     e.time    = GetTime()
     e.clean   = info.clean
     e.l       = info.l
-    e.label   = info.label
-    e.cat     = info.cat
-    e.size    = info.size
-    e.heroic  = info.heroic
-    e.roles   = info.roles
+    e.sortKey = info.l          -- lowercase message text, used for ordering
     e.channel = channel
     self.entries[key] = e
 
     if isNew then
         local kw = WatchMatch(e)
         if kw then
-            Print(format("|Hplayer:%s|h[%s]|h is looking for: %s (watching \"%s\")",
-                name, name, e.label or e.clean, kw))
+            Print(format("|Hplayer:%s|h[%s]|h: %s (watching \"%s\")",
+                name, name, e.clean, kw))
             if self.db.sound then PlaySound("TellMessage") end
         end
     end
