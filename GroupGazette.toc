@@ -2,7 +2,7 @@
 ## Title: |cff33ff99Group Gazette|r
 ## Notes: A bulletin board that gathers every LFM message into one searchable list. Includes an optional ElvUI skin.
 ## Author: You
-## Version: 1.0.0
+## Version: 1.0
 ## SavedVariables: GroupGazetteDB
 ## OptionalDeps: ElvUI
 ## X-Category: Group
