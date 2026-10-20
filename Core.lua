@@ -17,7 +17,7 @@ GG.Print = Print
 -- Saved variables
 ---------------------------------------------------------------------------
 local defaults = {
-    expire  = 180,      -- seconds before a listing disappears
+    expire  = 60,       -- seconds before a listing disappears
     hide    = false,    -- hide LFM messages from the chat frames
     sound   = true,     -- play a sound on watch-keyword hits
     skin    = true,     -- apply the ElvUI skin (if ElvUI is loaded)
@@ -82,7 +82,7 @@ function GG:OnChat(event, msg, author, channelString, guid)
     if not info then return end
 
     local name = match(author or "", "^([^-]+)") or author
-    if not name or name == "" or name == UnitName("player") then return end
+    if not name or name == "" then return end
 
     local key = lower(name)
     local old = self.entries[key]
@@ -133,7 +133,7 @@ end
 
 function GG:Clear()
     for key in pairs(self.entries) do self.entries[key] = nil end
-    self:Refresh()
+    self:Refresh(true)
 end
 
 function GG:Toggle()

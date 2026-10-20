@@ -2,8 +2,8 @@ local addonName, GG = ...
 
 local lower, find, format = string.lower, string.find, string.format
 
-local ROW_H, NUM_ROWS = 20, 15
-local FRAME_W, FRAME_H = 680, 416
+local ROW_H, NUM_ROWS = 20, 22
+local FRAME_W, FRAME_H = 860, 564
 local LIST_W = FRAME_W - 32
 local ROW_W = LIST_W - 32
 
@@ -53,9 +53,7 @@ local function ShowTooltip(row)
     GameTooltip:AddDoubleLine("Channel", e.channel or "?", 0.6, 0.6, 0.6, 1, 1, 1)
     GameTooltip:AddDoubleLine("Posted", FormatAge(GetTime() - e.time) .. " ago", 0.6, 0.6, 0.6, 1, 1, 1)
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("Left-click: whisper", 0.5, 1, 0.5)
-    GameTooltip:AddLine("Shift-click: /who", 0.5, 1, 0.5)
-    GameTooltip:AddLine("Right-click: dismiss", 0.5, 1, 0.5)
+    GameTooltip:AddLine("Click: whisper", 0.5, 1, 0.5)
     GameTooltip:Show()
 end
 
@@ -114,13 +112,29 @@ function GG:UpdateRows()
     end
 end
 
-function GG:Refresh()
+-- True while the mouse is resting on one of our rows.
+local function MouseOverRow()
+    local focus = GetMouseFocus()
+    return focus and focus.ggRow and focus:IsShown()
+end
+
+-- Rebuilds the panel. While the user hovers an entry the panel is frozen
+-- (no new rows, no reordering, no expiry, no timer changes) so the message
+-- can be read in peace. Pass force = true for user-driven changes such as
+-- dismissing an entry or typing in the search box.
+function GG:Refresh(force)
     local f = self.frame
     if not f or not f:IsShown() then return end
+
+    if self.frozen and not force then
+        if MouseOverRow() then return end
+        self.frozen = false     -- safety net: the row we were hovering is gone
+    end
+
     self:BuildView()
     self:UpdateRows()
     f.count:SetText(format("%d / %d groups", #self.view, self.total))
-    f.footer:SetText(format("Listings expire after %ds", self.db and self.db.expire or 180))
+    f.footer:SetText(format("Listings expire after %ds", self.db and self.db.expire or 60))
 end
 
 ---------------------------------------------------------------------------
@@ -155,7 +169,8 @@ function GG:CreateUI()
         local p, _, rp, x, y = self:GetPoint()
         if GG.db then GG.db.pos = { p, rp, x, y } end
     end)
-    f:SetScript("OnShow", function() GG:Refresh() end)
+    f:SetScript("OnShow", function() GG.frozen = false GG:Refresh(true) end)
+    f:SetScript("OnHide", function() GG.frozen = false end)
     table.insert(UISpecialFrames, "GroupGazetteFrame")
 
     -- Default (non-ElvUI) look
@@ -194,7 +209,7 @@ function GG:CreateUI()
     sb:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
     sb:SetScript("OnTextChanged", function(self)
         GG.state.search = lower(self:GetText() or "")
-        GG:Refresh()
+        GG:Refresh(true)
     end)
     f.search = sb
 
@@ -247,7 +262,8 @@ function GG:CreateUI()
         row:SetWidth(ROW_W)
         row:SetHeight(ROW_H)
         row:SetPoint("TOPLEFT", list, "TOPLEFT", 4, -4 - (i - 1) * ROW_H)
-        row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        row.ggRow = true
+        row:RegisterForClicks("LeftButtonUp")
         row:EnableMouseWheel(true)
         row:SetScript("OnMouseWheel", OnWheel)
 
@@ -270,20 +286,21 @@ function GG:CreateUI()
         row.msg = NewRowFS(row, MSG_W)
         row.msg:SetPoint("LEFT", row, "LEFT", MSG_X, 0)
 
-        row:SetScript("OnClick", function(self, button)
+        row:SetScript("OnClick", function(self)
             local e = self.entry
-            if not e then return end
-            if button == "RightButton" then
-                GG.entries[e.key] = nil
-                GG:Refresh()
-            elseif IsShiftKeyDown() then
-                SendWho('n-"' .. e.name .. '"')
-            else
-                ChatFrame_SendTell(e.name)
-            end
+            if e then ChatFrame_SendTell(e.name) end
         end)
-        row:SetScript("OnEnter", ShowTooltip)
-        row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        row:SetScript("OnEnter", function(self)
+            GG.frozen = true
+            f.footer:SetText("|cffffd100Paused|r while hovering - updates resume when you move away")
+            ShowTooltip(self)
+        end)
+        row:SetScript("OnLeave", function()
+            -- Don't refresh here: moving from one row straight onto the next
+            -- would shift rows under the cursor. The 0.5s ticker catches up.
+            GG.frozen = false
+            GameTooltip:Hide()
+        end)
 
         row:Hide()
         self.rows[i] = row
@@ -295,7 +312,7 @@ function GG:CreateUI()
 
     f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisable")
     f.hint:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -22, 18)
-    f.hint:SetText("Click: whisper  |  Shift: /who  |  Right-click: dismiss")
+    f.hint:SetText("Click an entry to whisper")
 
     if self.ApplyElvUISkin then self:ApplyElvUISkin() end
 end
