@@ -6,12 +6,21 @@ GG.state = { search = "" }
 
 local lower, find, match, gsub, format = string.lower, string.find, string.match, string.gsub, string.format
 local GetTime = GetTime
-local PREFIX = "|cff33ff99Group Gazette:|r "
+local TAG = "|cff33ff99Group Gazette|r"
+local ADDON_VERSION = GetAddOnMetadata("GroupGazette", "Version") or "?"
+
+local function Log(msg)
+    DEFAULT_CHAT_FRAME:AddMessage(TAG .. " " .. msg)
+end
 
 local function Print(msg)
-    DEFAULT_CHAT_FRAME:AddMessage(PREFIX .. msg)
+    Log(msg)
 end
 GG.Print = Print
+
+local function LogLoad(hint)
+    Log("v" .. ADDON_VERSION .. " loaded." .. (hint and (" " .. hint) or ""))
+end
 
 ---------------------------------------------------------------------------
 -- Saved variables
@@ -178,7 +187,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
             GG.db = GroupGazetteDB
         end
     elseif event == "PLAYER_LOGIN" then
-        Print("loaded. Type |cffffff00/gazette|r to open the board.")
+        LogLoad("Type |cffffff00/gazette|r to open the board.")
     else
         local msg, author, _, channelString, _, _, _, _, _, _, _, guid = ...
         GG:OnChat(event, msg, author, channelString, guid)

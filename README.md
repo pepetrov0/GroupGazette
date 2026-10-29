@@ -3,7 +3,7 @@
 *One quiet board for every LFM message in chat.*
 
 ![WoW version](https://img.shields.io/badge/WoW-3.3.5a_WotLK-89502c?style=flat-square)
-![Version](https://img.shields.io/badge/version-1.0-33ff99?style=flat-square)
+![Version](https://img.shields.io/badge/version-1.0.1-33ff99?style=flat-square)
 ![ElvUI](https://img.shields.io/badge/ElvUI-optional_skin-5865f2?style=flat-square)
 
 [Features](#features) • [Installation](#installation) • [Usage](#usage) • [Commands](#commands)
